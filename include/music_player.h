@@ -38,6 +38,7 @@ struct music_queue_entry {
     int              song_index;   // index into g_music_ctx.song_cache
     size_t           cursor;       // index into song->notes
     int64_t          start_ms;     // tick_timer_start + cursor offset
+    int64_t          pause_elapsed; // elapsed ms when paused (0 = not paused)
     int              loop;
     enum music_bar_type bar_type;
     void            *boss_bar;     // EndstoneBossBar* (unique_ptr managed)

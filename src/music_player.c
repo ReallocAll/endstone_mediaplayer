@@ -92,6 +92,25 @@ void music_player_init(void)
     memset(&g_music_ctx, 0, sizeof(g_music_ctx));
 }
 
+// --- Time helpers ---
+static int64_t g_tick_start_ms = 0;
+
+static int64_t get_tick_ms(void)
+{
+#ifdef _WIN32
+    static LARGE_INTEGER freq;
+    static bool freq_init = false;
+    if (!freq_init) { QueryPerformanceFrequency(&freq); freq_init = true; }
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return (now.QuadPart * 1000) / freq.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+#endif
+}
+
 static void cleanup_playlist_bossbars(struct player_music *pm)
 {
     int len = (int)arrlen(pm->playlist);
@@ -302,6 +321,10 @@ void player_music_pause(void *player)
     if (arrlen(pm->playlist) == 0) return;
     struct music_queue_entry *entry = &pm->playlist[pm->current_track];
 
+    // Save elapsed so resume can restore correct playback position
+    int64_t now_ms = get_tick_ms() - g_tick_start_ms;
+    entry->pause_elapsed = now_ms - entry->start_ms;
+
     if (entry->bar_type == MUSIC_BAR_BOSSBAR && entry->boss_bar) {
         boss_bar_set_title(entry->boss_bar, MC_GRAY "Paused");
     } else if (entry->bar_type == MUSIC_BAR_POPUP || entry->bar_type == MUSIC_BAR_TIP) {
@@ -315,8 +338,12 @@ void player_music_resume(void *player)
     if (pos < 0) return;
     struct player_music *pm = &g_music_ctx.online_players[pos];
     pm->paused = false;
-    if (arrlen(pm->playlist) > 0)
-        pm->playlist[pm->current_track].start_ms = 0;
+    if (arrlen(pm->playlist) > 0) {
+        struct music_queue_entry *entry = &pm->playlist[pm->current_track];
+        int64_t now_ms = get_tick_ms() - g_tick_start_ms;
+        entry->start_ms = now_ms - entry->pause_elapsed;
+        entry->pause_elapsed = 0;
+    }
 }
 
 void music_player_query_playlist(void *player) { (void)player; }
@@ -332,24 +359,6 @@ void music_player_on_quit(void *player)
 }
 
 /* --- Tick (called from Scheduler on server thread) --- */
-
-static int64_t get_tick_ms(void)
-{
-#ifdef _WIN32
-    static LARGE_INTEGER freq;
-    static bool freq_init = false;
-    if (!freq_init) { QueryPerformanceFrequency(&freq); freq_init = true; }
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-    return (now.QuadPart * 1000) / freq.QuadPart;
-#else
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-#endif
-}
-
-static int64_t g_tick_start_ms = 0;
 
 void music_player_tick(void)
 {
