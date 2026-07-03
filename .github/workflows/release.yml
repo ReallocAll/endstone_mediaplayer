@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       solution:
@@ -51,16 +54,24 @@ jobs:
         shell: bash
         run: |
           echo "build_time=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
-          echo "tag_name=${{ inputs.rel_tag }}" >> $GITHUB_OUTPUT
-          if [ -z "${{ inputs.rel_title }}" ]; then
-            echo "title=v${{ inputs.rel_tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "title=${{ inputs.rel_title }}" >> $GITHUB_OUTPUT
-          fi
-          if [ -z "${{ inputs.rel_desc }}" ]; then
+          # Tag push: extract version from GITHUB_REF_NAME (v2.0.1 -> 2.0.1)
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            echo "tag_name=$TAG" >> $GITHUB_OUTPUT
+            echo "title=v$TAG" >> $GITHUB_OUTPUT
             echo "desc_body=$(git log -1 --pretty=%B)" >> $GITHUB_OUTPUT
           else
-            echo "desc_body=${{ inputs.rel_desc }}" >> $GITHUB_OUTPUT
+            echo "tag_name=${{ inputs.rel_tag }}" >> $GITHUB_OUTPUT
+            if [ -z "${{ inputs.rel_title }}" ]; then
+              echo "title=v${{ inputs.rel_tag }}" >> $GITHUB_OUTPUT
+            else
+              echo "title=${{ inputs.rel_title }}" >> $GITHUB_OUTPUT
+            fi
+            if [ -z "${{ inputs.rel_desc }}" ]; then
+              echo "desc_body=$(git log -1 --pretty=%B)" >> $GITHUB_OUTPUT
+            else
+              echo "desc_body=${{ inputs.rel_desc }}" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Install LLVM and Ninja
@@ -68,7 +79,10 @@ jobs:
 
       - name: Build
         run: |
-          cmake -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=${{ inputs.solution }} -S . -B build
+          $tag = "${{ steps.rel_info.outputs.tag_name }}"
+          $cmake_args = "-G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=RelWithDebInfo -S . -B build"
+          if ($tag -ne "") { $cmake_args += " -DMP_VERSION=$tag" }
+          Invoke-Expression "cmake $cmake_args"
           cmake --build build -j
 
       - name: Organize files
@@ -86,7 +100,7 @@ jobs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
-        if: inputs.artifact
+        if: github.event_name == 'push' || inputs.artifact
         with:
           name: endstone_mediaplayer
           path: |
@@ -95,11 +109,11 @@ jobs:
 
       - name: Create Release
         uses: softprops/action-gh-release@v3.0.1
-        if: inputs.release
+        if: github.event_name == 'push' || inputs.release
         with:
           tag_name: v${{ steps.rel_info.outputs.tag_name }}
           name: ${{ steps.rel_info.outputs.title }}
-          prerelease: ${{ inputs.pre_release }}
+          prerelease: ${{ github.event_name == 'push' && false || inputs.pre_release }}
           body: ${{ steps.rel_info.outputs.desc_body }}
           files: |
             release/endstone_mediaplayer_v${{ steps.rel_info.outputs.tag_name }}.zip

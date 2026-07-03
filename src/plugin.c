@@ -7,6 +7,7 @@
 
 #include "abi_helpers.h"
 #include "music_player.h"
+#include "version.h"
 #include <cppcompat/string.h>
 #include <cppcompat/vector.h>
 #include <stb_ds.h>
@@ -48,8 +49,8 @@ static void description_init(char *desc)
 {
     memset(desc, 0, ES_DESCRIPTION_SIZE);
     DESC_STRING(desc, ES_DESC_OFF_NAME,        "mediaplayer");
-    DESC_STRING(desc, ES_DESC_OFF_VERSION,     "2.0.0");
-    DESC_STRING(desc, ES_DESC_OFF_FULL_NAME,   "MediaPlayer v2.0.0");
+    DESC_STRING(desc, ES_DESC_OFF_VERSION,     MP_VERSION);
+    DESC_STRING(desc, ES_DESC_OFF_FULL_NAME,   "MediaPlayer v" MP_VERSION);
     DESC_STRING(desc, ES_DESC_OFF_API_VERSION, ES_API_VERSION);
     DESC_STRING(desc, ES_DESC_OFF_DESCRIPTION, "NBS music player for Endstone");
     DESC_STRING(desc, ES_DESC_OFF_WEBSITE,     "");
@@ -410,7 +411,7 @@ static void plugin_on_enable(void *self)
     snprintf(data_path, sizeof(data_path), "plugins/endstone_mediaplayer");
     path_init(data_path);
 
-    PLUGIN_LOG(self, ES_LOG_INFO, "MediaPlayer v2.0.0 enabled!");
+    PLUGIN_LOG(self, ES_LOG_INFO, "MediaPlayer v" MP_VERSION " enabled!");
     PLUGIN_LOG(self, ES_LOG_INFO, "Use /mpm help for commands");
 
     plugin_register_event(self, "PlayerJoinEvent",
