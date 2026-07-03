@@ -119,6 +119,7 @@
 #define ES_SENDER_SLOT_SEND_ERROR      17
 #define ES_SENDER_SLOT_GET_SERVER      18
 #define ES_SENDER_SLOT_GET_NAME        19
+#define ES_SENDER_SLOT_AS_PLAYER       15   /* asPlayer() → Player*, nullptr if console */
 
 /* --- Player vtable (primary, full chain Permissible->CommandSender->Actor->Mob->Player) --- */
 #define ES_PLAYER_SLOT_SEND_MESSAGE   16

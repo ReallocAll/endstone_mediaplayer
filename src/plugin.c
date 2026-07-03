@@ -193,7 +193,7 @@ static void handle_mpm(void *sender, int argc, const char *argv[])
 
     if (strcmp(action, "help") == 0) { print_usage(sender); return; }
 
-    /* ── list ── */
+    /* ── list (works from console) ── */
     if (strcmp(action, "list") == 0) {
         char **files = nullptr;
         int count = list_nbs_files(path_nbs(), &files);
@@ -208,6 +208,12 @@ static void handle_mpm(void *sender, int argc, const char *argv[])
             sender_send_message(sender, msg);
         }
         free_nbs_list(files, count);
+        return;
+    }
+
+    /* ── player-only commands ── */
+    if (!VCALL0(sender, ES_SENDER_SLOT_AS_PLAYER, void *)) {
+        sender_send_message(sender, MC_RED "[MediaPlayer] This command requires a player");
         return;
     }
 
