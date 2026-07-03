@@ -356,30 +356,28 @@ void music_player_tick(void)
 
         int64_t elapsed = now_ms - entry->start_ms;
         size_t notes_len = arrlen(song->notes);
-        int64_t last_note_time = 0;
 
         while (entry->cursor < notes_len && song->notes[entry->cursor].time_ms <= elapsed) {
             struct note *nt = &song->notes[entry->cursor];
             player_play_sound(pm->player, BUILTIN_INSTRUMENT[nt->instrument], nt->volume, nt->pitch);
-            last_note_time = nt->time_ms;
             entry->cursor++;
         }
 
-        if (last_note_time > 0 && entry->bar_type != MUSIC_BAR_NOT_DISPLAY) {
+        // Update progress bar every tick, even during silent sections
+        if (entry->bar_type != MUSIC_BAR_NOT_DISPLAY) {
             int64_t total = song->duration_ms;
             if (total == 0) total = 1;
-            float progress = (float)last_note_time / (float)total;
+            float progress = (float)elapsed / (float)total;
             if (progress > 1.0f) progress = 1.0f;
 
             if (entry->bar_type == MUSIC_BAR_BOSSBAR) {
-                // Create boss bar on first update
                 if (!entry->boss_bar) {
                     entry->boss_bar = boss_bar_create(pm->player, song->song_name);
                 }
                 if (entry->boss_bar) {
                     boss_bar_set_progress(entry->boss_bar, progress);
                     int tmin = (int)(total / 60000), tsec = (int)((total / 1000) % 60);
-                    int pmin = (int)(last_note_time / 60000), psec = (int)((last_note_time / 1000) % 60);
+                    int pmin = (int)(elapsed / 60000), psec = (int)((elapsed / 1000) % 60);
                     char title_buf[300];
                     snprintf(title_buf, sizeof(title_buf),
                              MC_GREEN "%s" MC_GOLD " | " MC_AQUA "%d:%02d" MC_GRAY "/" MC_AQUA "%d:%02d",
@@ -387,9 +385,8 @@ void music_player_tick(void)
                     boss_bar_set_title(entry->boss_bar, title_buf);
                 }
             } else {
-                // Popup/Tip: colored time display
                 int tmin = (int)(total / 60000), tsec = (int)((total / 1000) % 60);
-                int pmin = (int)(last_note_time / 60000), psec = (int)((last_note_time / 1000) % 60);
+                int pmin = (int)(elapsed / 60000), psec = (int)((elapsed / 1000) % 60);
                 char bar[80];
                 snprintf(bar, sizeof(bar),
                          MC_AQUA "%d:%02d" MC_GRAY "/" MC_AQUA "%d:%02d",
