@@ -1,0 +1,16 @@
+CompileFlags:
+  CompilationDatabase: build
+
+Index:
+  Background: Build
+
+Diagnostics:
+  UnusedIncludes: None
+  ClangTidy:
+    Remove:
+      - "*"
+---
+If:
+  PathMatch: .*/ref/.*
+Diagnostics:
+  Suppress: "*"

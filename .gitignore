@@ -1,0 +1,9 @@
+build/
+ref/
+.cache/
+.claude/
+MEMORY.md
+*.ilk
+*.pdb
+*.exp
+*.lib

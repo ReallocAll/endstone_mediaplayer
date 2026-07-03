@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install LLVM and Ninja
+        run: choco install llvm ninja --no-progress
+
+      - name: Build
+        run: |
+          cmake -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=RelWithDebInfo -S . -B build
+          cmake --build build -j
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: endstone_mediaplayer
+          path: |
+            build/endstone_mediaplayer.dll
+            build/endstone_mediaplayer.pdb
