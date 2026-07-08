@@ -2,6 +2,7 @@ build/
 ref/
 .cache/
 .claude/
+.vscode/
 MEMORY.md
 *.ilk
 *.pdb
