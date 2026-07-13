@@ -17,6 +17,14 @@
 #include <time.h>
 #endif
 
+/* Internal error info for song cache parsing */
+struct song_parse_error {
+    enum nbs_error_code nbs;
+    int64_t file_offset;
+    uint32_t tick;
+    uint32_t layer;
+};
+
 struct music_player_ctx g_music_ctx;
 
 // --- Path management ---
@@ -142,12 +150,31 @@ void music_player_shutdown(void)
 }
 
 // --- Song cache ---
-long long song_cache_parse(FILE *fp, const char *song_name)
-{
-    struct nbs_song *nbs = nbs_parse(fp);
-    if (!nbs) return -1;
+static int64_t song_parse_error_offset;
+static uint32_t song_parse_error_tick;
+static uint32_t song_parse_error_layer;
 
-    if (nbs->tempo <= 0.0f) { nbs_free(nbs); return -1; }
+long long song_cache_parse(FILE *fp, const char *song_name, struct nbs_error_info *out_error)
+{
+    struct nbs_error_info nbs_err;
+    memset(&nbs_err, 0, sizeof(nbs_err));
+
+    struct nbs_song *nbs = nbs_parse(fp, &nbs_err);
+    if (!nbs) {
+        if (out_error) {
+            *out_error = nbs_err;
+        }
+        return -1;
+    }
+
+    if (nbs->tempo <= 0.0f) {
+        if (out_error) {
+            out_error->code = NBS_ERROR_INVALID_VALUE;
+            out_error->section = NBS_SECTION_HEADER;
+        }
+        nbs_free(nbs);
+        return -1;
+    }
 
     struct song_cache_entry entry;
     memset(&entry, 0, sizeof(entry));
@@ -161,17 +188,21 @@ long long song_cache_parse(FILE *fp, const char *song_name)
 
     for (int i = 0; i < note_count; i++) {
         struct nbs_note *nn = &nbs->notes[i];
-        struct nbs_layer *layer = (nn->layer < layer_count) ? &nbs->layers[nn->layer] : nullptr;
+        struct nbs_layer *layer = (nn->layer < (size_t)layer_count) ? &nbs->layers[nn->layer] : nullptr;
 
+        /* Custom instrument handling: reject instruments > 15, use harp (index 0) */
+        int instrument = (nn->instrument < NUM_INSTRUMENTS) ? nn->instrument : 0;
+
+        /* Base pitch is always 45 for harp; ignore custom instrument pitch */
         int instrument_pitch = 45;
-        if (nn->instrument < instr_count)
-            instrument_pitch = (int)nbs->instruments[nn->instrument].pitch;
 
-        int instrument = (nn->instrument <= 15) ? nn->instrument : 0;
         float volume = (float)nn->velocity / 100.0f;
-        if (layer) volume *= (float)layer->volume / 100.0f;
+        if (layer) {
+            volume *= (float)layer->volume / 100.0f;
+        }
 
-        float final_key = (float)nn->key + (float)(instrument_pitch - 45) + (float)nn->pitch / 100.0f;
+        /* Final key: note key + fine pitch only (custom instrument pitch ignored) */
+        float final_key = (float)nn->key + (float)nn->pitch / 100.0f;
         float pitch = powf(2.0f, (final_key - 45.0f) / 12.0f);
 
         struct note nt;
@@ -231,7 +262,8 @@ static void do_path_stem(const char *filename, char *dst, size_t dst_size)
 
 // --- Playlist operations ---
 enum enqueue_result player_music_enqueue(void *player, const char *nbs_file,
-                                         int loop, enum music_bar_type bar)
+                                         int loop, enum music_bar_type bar,
+                                         struct nbs_error_info *out_error)
 {
     if (loop < -1) return ENQUEUE_BAD_LOOP;
     if (bar < 0 || bar > MUSIC_BAR_BOSSBAR) return ENQUEUE_BAD_BAR;
@@ -245,9 +277,25 @@ enum enqueue_result player_music_enqueue(void *player, const char *nbs_file,
         snprintf(path, MAX_PATH_LEN, "%s/%s", path_nbs(), nbs_file);
         FILE *fp = fopen_utf8(path, "rb");
         if (!fp) return ENQUEUE_FILE_ERROR;
-        cache_idx = song_cache_parse(fp, stem);
+
+        struct nbs_error_info nbs_err;
+        cache_idx = song_cache_parse(fp, stem, &nbs_err);
         fclose(fp);
-        if (cache_idx == -1) return ENQUEUE_FILE_ERROR;
+
+        if (cache_idx == -1) {
+            if (out_error) {
+                *out_error = nbs_err;
+            }
+            /* Map nbs_error_code to enqueue_result */
+            switch (nbs_err.code) {
+            case NBS_ERROR_UNSUPPORTED_VERSION:
+                return ENQUEUE_NBS_VERSION_ERROR;
+            case NBS_ERROR_LIMIT_EXCEEDED:
+                return ENQUEUE_NBS_LIMIT_ERROR;
+            default:
+                return ENQUEUE_NBS_PARSE_ERROR;
+            }
+        }
     }
 
     struct music_queue_entry entry;

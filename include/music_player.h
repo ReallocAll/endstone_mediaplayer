@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include "nbsparser.h"
 
 #define NUM_INSTRUMENTS 16
 #define MAX_PATH_LEN 4096
@@ -28,6 +29,9 @@ enum enqueue_result {
     ENQUEUE_BAD_LOOP,
     ENQUEUE_BAD_BAR,
     ENQUEUE_FILE_ERROR,
+    ENQUEUE_NBS_PARSE_ERROR,
+    ENQUEUE_NBS_VERSION_ERROR,
+    ENQUEUE_NBS_LIMIT_ERROR,
 };
 
 enum player_op_result {
@@ -80,11 +84,11 @@ void music_player_init(void);
 void music_player_shutdown(void);
 
 // Song cache
-long long song_cache_parse(FILE *fp, const char *song_name);
+long long song_cache_parse(FILE *fp, const char *song_name, struct nbs_error_info *out_error);
 
 // Player management
 long long player_music_find(void *player);
-enum enqueue_result player_music_enqueue(void *player, const char *nbs_file, int loop, enum music_bar_type bar);
+enum enqueue_result player_music_enqueue(void *player, const char *nbs_file, int loop, enum music_bar_type bar, struct nbs_error_info *out_error);
 enum player_op_result player_music_dequeue(void *player, size_t index);
 enum player_op_result player_music_stop(void *player);
 enum player_op_result player_music_pause(void *player);

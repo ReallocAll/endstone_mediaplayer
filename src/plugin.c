@@ -195,7 +195,7 @@ static void print_usage(void *sender)
     sender_send_message(sender, MC_GRAY "── " MC_AQUA "Loop" MC_GRAY " ──  " MC_GRAY "-1=infinite  1=once  N=times");
 }
 
-static void handle_mpm(void *sender, int argc, const char *argv[])
+static void handle_mpm(void *self, void *sender, int argc, const char *argv[])
 {
     if (argc < 1) { print_usage(sender); return; }
     const char *action = argv[0];
@@ -268,8 +268,9 @@ static void handle_mpm(void *sender, int argc, const char *argv[])
             return;
         }
 
+        struct nbs_error_info err;
         enum enqueue_result r = player_music_enqueue(sender, files[idx], loop,
-                                                      (enum music_bar_type)bar);
+                                                      (enum music_bar_type)bar, &err);
         switch (r) {
         case ENQUEUE_OK:
             snprintf(msg, sizeof(msg),
@@ -294,7 +295,47 @@ static void handle_mpm(void *sender, int argc, const char *argv[])
                      files[idx]);
             sender_send_message(sender, msg);
             break;
+        case ENQUEUE_NBS_VERSION_ERROR:
+            snprintf(msg, sizeof(msg),
+                     MC_RED "[MediaPlayer] " MC_GRAY "Unsupported NBS version " MC_YELLOW "%s",
+                     files[idx]);
+            sender_send_message(sender, msg);
+            if (self) {
+                char logmsg[512];
+                snprintf(logmsg, sizeof(logmsg),
+                    "[MediaPlayer] Unsupported NBS version in '%s': version=%d",
+                    files[idx], (int)err.tick);
+                PLUGIN_LOG(self, ES_LOG_INFO, logmsg);
+            }
+            break;
+        case ENQUEUE_NBS_LIMIT_ERROR:
+            snprintf(msg, sizeof(msg),
+                     MC_RED "[MediaPlayer] " MC_GRAY "NBS file exceeds limits " MC_YELLOW "%s",
+                     files[idx]);
+            sender_send_message(sender, msg);
+            if (self) {
+                char logmsg[512];
+                snprintf(logmsg, sizeof(logmsg),
+                    "[MediaPlayer] NBS limit exceeded in '%s': error=%s section=%s offset=%lld",
+                    files[idx], nbs_error_string(err.code), nbs_section_string(err.section),
+                    (long long)err.file_offset);
+                PLUGIN_LOG(self, ES_LOG_INFO, logmsg);
+            }
+            break;
+        case ENQUEUE_NBS_PARSE_ERROR:
         default:
+            snprintf(msg, sizeof(msg),
+                     MC_RED "[MediaPlayer] " MC_GRAY "Failed to parse " MC_YELLOW "%s: %s",
+                     files[idx], nbs_error_string(err.code));
+            sender_send_message(sender, msg);
+            if (self) {
+                char logmsg[512];
+                snprintf(logmsg, sizeof(logmsg),
+                    "[MediaPlayer] Failed to parse '%s': error=%s section=%s offset=%lld tick=%u layer=%u",
+                    files[idx], nbs_error_string(err.code), nbs_section_string(err.section),
+                    (long long)err.file_offset, err.tick, err.layer);
+                PLUGIN_LOG(self, ES_LOG_INFO, logmsg);
+            }
             break;
         }
         free_nbs_list(files, count);
@@ -496,11 +537,10 @@ static bool plugin_on_command(void *self, void *sender,
                               const void *command, const void *args)
 {
     const char *cmd_name = cpp_string_str((char *)command + ES_COMMAND_OFF_NAME);
-    (void)self;
     if (strcmp(cmd_name, "mpm") == 0) {
         const char *arg_strs[16];
         int argc = read_string_vector(args, arg_strs, 16);
-        handle_mpm(sender, argc, arg_strs);
+        handle_mpm(self, sender, argc, arg_strs);
         return true;
     }
     return false;
