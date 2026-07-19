@@ -80,6 +80,32 @@ static void write_note(FILE *fp, uint16_t tick_jump, uint16_t layer_jump,
     write_u8(fp, key);
 }
 
+/* Helper: write a complete v4 file containing one note and one layer. */
+static void write_v4_value_test(FILE *fp, uint8_t key, uint8_t velocity,
+                                uint8_t note_panning, uint8_t layer_volume) {
+    write_u16(fp, 0);
+    write_u8(fp, 4);
+    write_u8(fp, 16);
+    write_u16(fp, 1);
+    write_u16(fp, 1);
+    write_string(fp, "S"); write_string(fp, "A");
+    write_string(fp, "O"); write_string(fp, "D");
+    write_u16(fp, 1000);
+    write_u8(fp, 0); write_u8(fp, 0); write_u8(fp, 4);
+    write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0);
+    write_string(fp, "");
+    write_u8(fp, 0); write_u8(fp, 0); write_u16(fp, 0);
+
+    write_u16(fp, 1); write_u16(fp, 1);
+    write_u8(fp, 0); write_u8(fp, key);
+    write_u8(fp, velocity); write_u8(fp, note_panning); write_u16(fp, 0);
+    write_u16(fp, 0); write_u16(fp, 0);
+
+    write_string(fp, "L");
+    write_u8(fp, 0); write_u8(fp, layer_volume); write_u8(fp, 100);
+    write_u8(fp, 0);
+}
+
 /* ==================== Valid File Tests ==================== */
 
 /* Test: Empty file (only header minimum) should fail gracefully */
@@ -801,6 +827,38 @@ static int test_panning_boundary(void) {
     return 1;
 }
 
+/* Test: Out-of-range note and layer values are rejected. */
+static int test_invalid_field_values(void) {
+    static const struct {
+        uint8_t key;
+        uint8_t velocity;
+        uint8_t note_panning;
+        uint8_t layer_volume;
+        enum nbs_section section;
+    } cases[] = {
+        {88, 100, 100, 100, NBS_SECTION_NOTES},
+        {45, 101, 100, 100, NBS_SECTION_NOTES},
+        {45, 100, 201, 100, NBS_SECTION_NOTES},
+        {45, 100, 100, 101, NBS_SECTION_LAYERS},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        FILE *fp = tmpfile();
+        EXPECT(fp != NULL, "tmpfile");
+        write_v4_value_test(fp, cases[i].key, cases[i].velocity,
+                            cases[i].note_panning, cases[i].layer_volume);
+        rewind(fp);
+
+        struct nbs_error_info err;
+        struct nbs_song *song = nbs_parse(fp, &err);
+        EXPECT(song == NULL, "invalid field should fail parsing");
+        EXPECT(err.code == NBS_ERROR_INVALID_VALUE, "should report invalid value");
+        EXPECT(err.section == cases[i].section, "should report the failing section");
+        fclose(fp);
+    }
+    return 1;
+}
+
 /* Test: Valid NBS file without instruments section (legally omitted) */
 static int test_valid_no_instruments(void) {
     FILE *fp = tmpfile();
@@ -1223,6 +1281,7 @@ int main(void) {
     RUN_TEST(test_tick_100000);
     RUN_TEST(test_custom_instrument_harp);
     RUN_TEST(test_panning_boundary);
+    RUN_TEST(test_invalid_field_values);
     RUN_TEST(test_valid_no_instruments);
     RUN_TEST(test_valid_no_layers);
     RUN_TEST(test_layer_truncated);

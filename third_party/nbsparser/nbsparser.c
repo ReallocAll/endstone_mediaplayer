@@ -223,23 +223,41 @@ static bool parse_header(FILE *fp, struct nbs_song *song, struct nbs_error_info 
         set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_HEADER, offset, 0, 0, 0);
         return false;
     }
+    if (tempo == 0) {
+        set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_HEADER, offset, 0, 0, 0);
+        return false;
+    }
     song->tempo = (float)tempo / 100.0f;
 
     offset = get_offset(fp);
-    if (fread(&song->auto_save, sizeof(uchar), 1, fp) != 1) {
+    uchar auto_save = 0;
+    if (fread(&auto_save, sizeof(uchar), 1, fp) != 1) {
         set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_HEADER, offset, 0, 0, 0);
         return false;
     }
+    if (auto_save > 1) {
+        set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_HEADER, offset, 0, 0, 0);
+        return false;
+    }
+    song->auto_save = (bool)auto_save;
 
     offset = get_offset(fp);
     if (fread(&song->auto_save_duration, sizeof(uchar), 1, fp) != 1) {
         set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_HEADER, offset, 0, 0, 0);
         return false;
     }
+    if (song->auto_save_duration > 60) {
+        set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_HEADER, offset, 0, 0, 0);
+        return false;
+    }
 
     offset = get_offset(fp);
     if (fread(&song->time_signature, sizeof(uchar), 1, fp) != 1) {
         set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_HEADER, offset, 0, 0, 0);
+        return false;
+    }
+    if (song->time_signature < 2 || song->time_signature > 8) {
+        set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_HEADER, offset, 0, 0, 0);
         return false;
     }
 
@@ -291,10 +309,16 @@ static bool parse_header(FILE *fp, struct nbs_song *song, struct nbs_error_info 
     /* Version-dependent fields (v4+) */
     offset = get_offset(fp);
     if (song->version >= 4) {
-        if (fread(&song->loop, sizeof(uchar), 1, fp) != 1) {
+        uchar loop = 0;
+        if (fread(&loop, sizeof(uchar), 1, fp) != 1) {
             set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_HEADER, offset, 0, 0, 0);
             return false;
         }
+        if (loop > 1) {
+            set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_HEADER, offset, 0, 0, 0);
+            return false;
+        }
+        song->loop = (bool)loop;
     } else {
         song->loop = false;
     }
@@ -408,6 +432,11 @@ static bool parse_notes(FILE *fp, struct nbs_song *song, struct nbs_error_info *
                           0);
                 return false;
             }
+            if (note.key > 87) {
+                set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_NOTES, offset,
+                          (uint32_t)current_tick, (uint32_t)current_layer, 0);
+                return false;
+            }
 
             offset = get_offset(fp);
             if (song->version >= 4) {
@@ -416,6 +445,11 @@ static bool parse_notes(FILE *fp, struct nbs_song *song, struct nbs_error_info *
                               (uint32_t)(current_tick < 0 ? 0 : current_tick),
                               (uint32_t)(current_layer < 0 ? 0 : current_layer),
                               0);
+                    return false;
+                }
+                if (note.velocity > 100) {
+                    set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_NOTES, offset,
+                              (uint32_t)current_tick, (uint32_t)current_layer, 0);
                     return false;
                 }
             } else {
@@ -430,6 +464,11 @@ static bool parse_notes(FILE *fp, struct nbs_song *song, struct nbs_error_info *
                               (uint32_t)(current_tick < 0 ? 0 : current_tick),
                               (uint32_t)(current_layer < 0 ? 0 : current_layer),
                               0);
+                    return false;
+                }
+                if (panning_raw > 200) {
+                    set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_NOTES, offset,
+                              (uint32_t)current_tick, (uint32_t)current_layer, 0);
                     return false;
                 }
                 /* Map 0-200 to -100-100 */
@@ -515,6 +554,12 @@ static bool parse_layers(FILE *fp, struct nbs_song *song, struct nbs_error_info 
                 return false;
             }
             layer.lock = (bool)lock;
+            if (lock > 1) {
+                set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_LAYERS,
+                          offset, 0, (uint32_t)i, 0);
+                free(layer.name);
+                return false;
+            }
         } else {
             layer.lock = false;
         }
@@ -525,12 +570,24 @@ static bool parse_layers(FILE *fp, struct nbs_song *song, struct nbs_error_info 
             free(layer.name);
             return false;
         }
+        if (layer.volume > 100) {
+            set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_LAYERS,
+                      offset, 0, (uint32_t)i, 0);
+            free(layer.name);
+            return false;
+        }
 
         offset = get_offset(fp);
         if (song->version >= 2) {
             uchar panning_raw;
             if (fread(&panning_raw, sizeof(uchar), 1, fp) != 1) {
                 set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_LAYERS, offset, 0, (uint32_t)i, 0);
+                free(layer.name);
+                return false;
+            }
+            if (panning_raw > 200) {
+                set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_LAYERS,
+                          offset, 0, (uint32_t)i, 0);
                 free(layer.name);
                 return false;
             }
@@ -622,11 +679,25 @@ static bool parse_instruments(FILE *fp, struct nbs_song *song, struct nbs_error_
             free(instr.sound_file);
             return false;
         }
+        if (instr.pitch > 87) {
+            set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_INSTRUMENTS,
+                      offset, 0, (uint32_t)i, 0);
+            free(instr.name);
+            free(instr.sound_file);
+            return false;
+        }
 
         offset = get_offset(fp);
         uchar press_key = 0;
         if (fread(&press_key, sizeof(uchar), 1, fp) != 1) {
             set_error(out_error, NBS_ERROR_TRUNCATED, NBS_SECTION_INSTRUMENTS, offset, 0, (uint32_t)i, 0);
+            free(instr.name);
+            free(instr.sound_file);
+            return false;
+        }
+        if (press_key > 1) {
+            set_error(out_error, NBS_ERROR_INVALID_VALUE, NBS_SECTION_INSTRUMENTS,
+                      offset, 0, (uint32_t)i, 0);
             free(instr.name);
             free(instr.sound_file);
             return false;
