@@ -34,7 +34,7 @@ jobs:
           retention-days: 1
 
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -61,7 +61,7 @@ jobs:
           retention-days: 1
 
   sanitize-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -87,7 +87,7 @@ jobs:
 
   package:
     needs: [build-win, build-linux, sanitize-linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Download build files
         uses: actions/download-artifact@v7

@@ -44,7 +44,7 @@ on:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       tag_name: ${{ steps.rel_info.outputs.tag_name }}
       title: ${{ steps.rel_info.outputs.title }}
@@ -137,7 +137,7 @@ jobs:
 
   build-linux:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -175,7 +175,7 @@ jobs:
 
   release:
     needs: [prepare, build-win, build-linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
