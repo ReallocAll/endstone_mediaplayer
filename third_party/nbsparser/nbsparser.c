@@ -463,6 +463,26 @@ static bool parse_layers(FILE *fp, struct nbs_song *song, struct nbs_error_info 
 {
     song->layers = NULL;
 
+    /* The entire layers section is optional.  A clean EOF immediately after
+     * the notes terminator is valid even when the header reports layers. */
+    if (song->song_layers > 0) {
+        int64_t offset = get_offset(fp);
+        int first_byte = fgetc(fp);
+        if (first_byte == EOF) {
+            if (ferror(fp)) {
+                set_error(out_error, NBS_ERROR_IO, NBS_SECTION_LAYERS,
+                          offset, 0, 0, 0);
+                return false;
+            }
+            return true;
+        }
+        if (ungetc(first_byte, fp) == EOF) {
+            set_error(out_error, NBS_ERROR_IO, NBS_SECTION_LAYERS,
+                      offset, 0, 0, 0);
+            return false;
+        }
+    }
+
     for (int i = 0; i < song->song_layers; i++) {
         int64_t offset = get_offset(fp);
 
@@ -539,9 +559,13 @@ static bool parse_instruments(FILE *fp, struct nbs_song *song, struct nbs_error_
     int64_t offset = get_offset(fp);
     size_t bytes_read = fread(&instrument_count, sizeof(uchar), 1, fp);
 
-    /* If we can't read the count byte at all, treat as clean EOF (optional section omitted) */
+    /* If we can't read the count byte at all, treat clean EOF as an omitted section. */
     if (bytes_read != 1) {
-        /* No instruments section - this is allowed */
+        if (ferror(fp)) {
+            set_error(out_error, NBS_ERROR_IO, NBS_SECTION_INSTRUMENTS,
+                      offset, 0, 0, 0);
+            return false;
+        }
         return true;
     }
 

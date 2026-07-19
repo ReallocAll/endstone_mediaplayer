@@ -846,6 +846,42 @@ static int test_valid_no_instruments(void) {
     return 1;
 }
 
+/* Test: Layers and instruments sections may both be omitted at EOF. */
+static int test_valid_no_layers(void) {
+    FILE *fp = tmpfile();
+    EXPECT(fp != NULL, "tmpfile");
+
+    /* The header can still report layers even when the optional section is absent. */
+    write_u16(fp, 1);  /* v0 */
+    write_u16(fp, 1);  /* song_layers */
+    write_string(fp, "Song");
+    write_string(fp, "Author");
+    write_string(fp, "Original");
+    write_string(fp, "Desc");
+    write_u16(fp, 1000);
+    write_u8(fp, 0);
+    write_u8(fp, 0);
+    write_u8(fp, 4);
+    write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0);
+    write_string(fp, "");
+    write_notes_end(fp);
+    /* Clean EOF: layers and custom instruments are both omitted. */
+
+    rewind(fp);
+
+    struct nbs_error_info err;
+    struct nbs_song *song = nbs_parse(fp, &err);
+
+    EXPECT(song != NULL, "song should parse without optional sections");
+    EXPECT(err.code == NBS_ERROR_NONE, "error should remain clear");
+    EXPECT(arrlen(song->layers) == 0, "layers should be empty");
+    EXPECT(arrlen(song->instruments) == 0, "instruments should be empty");
+
+    nbs_free(song);
+    fclose(fp);
+    return 1;
+}
+
 /* Test: Layer truncated mid-parse - name succeeds but volume fails */
 static int test_layer_truncated(void) {
     FILE *fp = tmpfile();
@@ -1188,6 +1224,7 @@ int main(void) {
     RUN_TEST(test_custom_instrument_harp);
     RUN_TEST(test_panning_boundary);
     RUN_TEST(test_valid_no_instruments);
+    RUN_TEST(test_valid_no_layers);
     RUN_TEST(test_layer_truncated);
     RUN_TEST(test_instrument_truncated_name_ok_soundfile_eof);
     RUN_TEST(test_instrument_truncated_strings_ok_pitch_eof);
