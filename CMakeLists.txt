@@ -101,10 +101,36 @@ if(ENABLE_SANITIZER)
         target_link_options(test_nbs_parser PRIVATE
             -fsanitize=address,undefined)
     elseif(WIN32)
+        execute_process(
+            COMMAND "${CMAKE_C_COMPILER}" --print-resource-dir
+            OUTPUT_VARIABLE CLANG_RESOURCE_DIR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            COMMAND_ERROR_IS_FATAL ANY)
+        file(TO_CMAKE_PATH "${CLANG_RESOURCE_DIR}/lib/windows" CLANG_RUNTIME_DIR)
+
+        set(ASAN_RUNTIME "${CLANG_RUNTIME_DIR}/clang_rt.asan_dynamic-x86_64.lib")
+        set(ASAN_THUNK "${CLANG_RUNTIME_DIR}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib")
+        set(ASAN_DLL "${CLANG_RUNTIME_DIR}/clang_rt.asan_dynamic-x86_64.dll")
+        foreach(runtime_file IN ITEMS "${ASAN_RUNTIME}" "${ASAN_THUNK}" "${ASAN_DLL}")
+            if(NOT EXISTS "${runtime_file}")
+                message(FATAL_ERROR "Required AddressSanitizer runtime not found: ${runtime_file}")
+            endif()
+        endforeach()
+
+        # clang-cl's ASan does not support the debug CRT.  CMake also invokes
+        # lld-link directly for Ninja builds, so link compiler-rt explicitly.
+        set_property(TARGET test_nbs_parser PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
         target_compile_options(test_nbs_parser PRIVATE
-            -fsanitize=address)
+            /fsanitize=address)
+        target_link_libraries(test_nbs_parser PRIVATE
+            "${ASAN_RUNTIME}")
         target_link_options(test_nbs_parser PRIVATE
-            -fsanitize=address)
+            "/WHOLEARCHIVE:${ASAN_THUNK}"
+            /INCREMENTAL:NO)
+        add_custom_command(TARGET test_nbs_parser POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ASAN_DLL}" "$<TARGET_FILE_DIR:test_nbs_parser>")
     endif()
 endif()
 
