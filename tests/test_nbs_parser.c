@@ -529,10 +529,57 @@ static int test_layer_reset_per_tick(void) {
 
 /* Test: Note count limit enforced */
 static int test_note_limit_exceeded(void) {
-    /* This test would generate NBS_MAX_NOTES + 1 notes which is slow.
-     * Instead, we test that the limit constant is reasonable. */
-    EXPECT(NBS_MAX_NOTES >= 100000, "note limit should allow 100k+ notes");
-    EXPECT(NBS_MAX_NOTES <= 10000000, "note limit should cap at reasonable value");
+    FILE *fp = tmpfile();
+    EXPECT(fp != NULL, "tmpfile");
+
+    write_u16(fp, 0); write_u8(fp, 4); write_u8(fp, 16);
+    write_u16(fp, 1); write_u16(fp, 1000);
+    write_string(fp, ""); write_string(fp, ""); write_string(fp, ""); write_string(fp, "");
+    write_u16(fp, 1000);
+    write_u8(fp, 0); write_u8(fp, 0); write_u8(fp, 4);
+    write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0); write_u32(fp, 0);
+    write_string(fp, "");
+    write_u8(fp, 0); write_u8(fp, 0); write_u16(fp, 0);
+
+    /* One tick contains 1000 compact notes.  Write exactly the limit, then
+     * one more note on a new tick so the parser must exercise the guard. */
+    uint8_t tick_notes[1000 * 8];
+    for (size_t i = 0; i < 1000; i++) {
+        uint8_t *note = &tick_notes[i * 8];
+        note[0] = 1; note[1] = 0;  /* layer jump */
+        note[2] = 0;               /* instrument */
+        note[3] = 45;              /* key */
+        note[4] = 100;             /* velocity */
+        note[5] = 100;             /* panning */
+        note[6] = 0; note[7] = 0;  /* pitch */
+    }
+
+    uint32_t full_ticks = NBS_MAX_NOTES / 1000U;
+    uint32_t remainder = NBS_MAX_NOTES % 1000U;
+    for (uint32_t i = 0; i < full_ticks; i++) {
+        write_u16(fp, 1);
+        fwrite(tick_notes, sizeof(tick_notes), 1, fp);
+        write_u16(fp, 0);
+    }
+    if (remainder > 0) {
+        write_u16(fp, 1);
+        fwrite(tick_notes, 8, remainder, fp);
+        write_u16(fp, 0);
+    }
+    write_u16(fp, 1);
+    fwrite(tick_notes, 8, 1, fp);
+    write_u16(fp, 0);
+    write_notes_end(fp);
+
+    rewind(fp);
+    struct nbs_error_info err;
+    struct nbs_song *song = nbs_parse(fp, &err);
+
+    EXPECT(song == NULL, "note count above limit should fail");
+    EXPECT(err.code == NBS_ERROR_LIMIT_EXCEEDED, "should report limit exceeded");
+    EXPECT(err.section == NBS_SECTION_NOTES, "should fail in notes section");
+
+    fclose(fp);
     return 1;
 }
 
@@ -1124,12 +1171,10 @@ static int test_tempo_zero(void) {
     memset(&err, 0, sizeof(err));
     struct nbs_song *song = nbs_parse(fp, &err);
 
-    /* Note: tempo=0 validation happens in song_cache_parse, not nbs_parse */
-    /* nbs_parse will succeed but song_cache_parse should reject it */
-    /* For now, just verify it parses */
-    if (song != NULL) {
-        nbs_free(song);
-    }
+    EXPECT(song == NULL, "tempo=0 should fail parsing");
+    EXPECT(err.code == NBS_ERROR_INVALID_VALUE, "should report invalid value");
+    EXPECT(err.section == NBS_SECTION_HEADER, "should fail in header section");
+
     fclose(fp);
     return 1;
 }
@@ -1251,9 +1296,21 @@ static int test_instrument_limit_exceeded(void) {
 
 /* Test: file size exceeding limit should fail */
 static int test_file_size_limit(void) {
-    /* We can't easily create a 64MB+ file in a unit test.
-     * Instead, verify the constant is reasonable. */
-    EXPECT(NBS_MAX_FILE_SIZE >= 64 * 1024 * 1024, "max file size should be >= 64MB");
+    FILE *fp = tmpfile();
+    EXPECT(fp != NULL, "tmpfile");
+    EXPECT(fseek(fp, (long)NBS_MAX_FILE_SIZE, SEEK_SET) == 0, "seek to size limit");
+    EXPECT(fputc(0, fp) != EOF, "extend file beyond size limit");
+    rewind(fp);
+
+    struct nbs_error_info err;
+    struct nbs_song *song = nbs_parse(fp, &err);
+
+    EXPECT(song == NULL, "oversized file should fail parsing");
+    EXPECT(err.code == NBS_ERROR_LIMIT_EXCEEDED, "should report limit exceeded");
+    EXPECT(err.section == NBS_SECTION_NONE, "size check should fail before parsing");
+    EXPECT(err.file_offset == (int64_t)NBS_MAX_FILE_SIZE + 1, "should report actual file size");
+
+    fclose(fp);
     return 1;
 }
 
